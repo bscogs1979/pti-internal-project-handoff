@@ -1,0 +1,1441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PTI Internal Project Handoff</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Tailwind for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React + ReactDOM via CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <!-- Babel so we can write JSX directly in this file -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      @page { margin: 16mm; }
+      @media print {
+        .no-print { display: none !important; }
+        .print-only { display: block !important; }
+        body { background: white; }
+      }
+      .print-only { display: none; }
+      body { background: #f3f4f6; }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!-- Our entire React app -->
+    <script type="text/babel">
+      const { useEffect, useMemo, useRef, useState } = React;
+      const STORAGE_KEY = "pti-project-handoff-form-v1";
+
+      const defaultData = {
+        project: {
+          name: "Americasmart",
+          address: "",
+          clientNameTitle: "Tony Sidney",
+          clientPhoneEmail: "tony.sidney@reimaginedparking.com",
+          salesRep: "Bill G",
+          projectManager: "Andrew Z",
+          handoffDate: "2025-11-10",
+          type: "New Installation",
+          scopeSummary: "",
+          bom: [],
+          clientSolutionSummary: "",
+        },
+        install: {
+          lanes: { entry: "", exit: "", reversible: "" },
+          mounting: {
+            surface: false,
+            directBurial: false,
+            wall: false,
+            footer: false,
+            other: "",
+          },
+          power: { available: true, location: "TBD" },
+          network: { available: false, connection: "", wiredLocation: "" },
+          siteWork: {
+            concrete: false,
+            asphalt: false,
+            saw: false,
+            trench: false,
+            none: false,
+          },
+          stagingLocation: "",
+          accessSecurity: "",
+          specialConditions: "",
+          onsitePOC: "",
+        },
+        integration: {
+          configNotes: "",
+          integrationsNeeded: "",
+        },
+        schedule: {
+          targetStart: "",
+          clientCompletion: "",
+          permitPending: false,
+          dependencies: "",
+        },
+        financial: {
+          value: "",
+          poReceived: false,
+          depositReceived: false,
+          billing: { deposit: false, progress: false, final: false },
+        },
+        attachments: {
+          signedProposal: null,
+          sitePhotos: null,
+          drawings: null,
+          equipmentList: null,
+          elecNetworkPlans: null,
+          clientEmails: null,
+        },
+        salesNotes: "",
+        pmAck: {
+          reviewedBy: "",
+          date: "",
+          initialActions: "",
+        },
+      };
+
+      const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
+
+      function useAutoSave(state, version = STORAGE_KEY) {
+        const first = useRef(true);
+        useEffect(() => {
+          if (first.current) {
+            first.current = false;
+            return;
+          }
+          try {
+            localStorage.setItem(version, JSON.stringify(state));
+          } catch (e) {
+            console.warn("Autosave failed:", e);
+          }
+        }, [state, version]);
+      }
+
+      function loadSaved() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          console.warn("Failed to load saved form", e);
+          return null;
+        }
+      }
+
+      const Label = ({ children, htmlFor, className = "" }) => (
+        <label
+          htmlFor={htmlFor}
+          className={"text-sm font-medium text-gray-800 " + className}
+        >
+          {children}
+        </label>
+      );
+
+      const TextInput = ({
+        id,
+        value,
+        onChange,
+        placeholder,
+        type = "text",
+        className = "",
+      }) => (
+        <input
+          id={id}
+          type={type}
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={
+            "w-full rounded-2xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm " +
+            className
+          }
+        />
+      );
+
+      const TextArea = ({ id, value, onChange, rows = 3, placeholder }) => (
+        <textarea
+          id={id}
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+          className="w-full rounded-2xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+        />
+      );
+
+      const Section = ({ title, children, actions }) => (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 print:border-0 print:shadow-none">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+            {actions}
+          </div>
+          <div className="grid gap-4">{children}</div>
+        </div>
+      );
+
+      const Switch = ({ checked, onChange, label, id }) => (
+        <label
+          htmlFor={id}
+          className="flex items-center gap-3 cursor-pointer select-none"
+        >
+          <input
+            id={id}
+            type="checkbox"
+            checked={!!checked}
+            onChange={(e) => onChange(e.target.checked)}
+            className="h-5 w-5 rounded border-gray-300"
+          />
+          <span className="text-sm text-gray-800">{label}</span>
+        </label>
+      );
+
+      const Radio = ({ name, value, checked, onChange, label }) => {
+        const id = `${name}-${value}`;
+        return (
+          <label htmlFor={id} className="flex items-center gap-2 cursor-pointer">
+            <input
+              id={id}
+              type="radio"
+              name={name}
+              value={value}
+              checked={checked}
+              onChange={(e) => onChange(e.target.value)}
+              className="h-4 w-4"
+            />
+            <span className="text-sm text-gray-800">{label}</span>
+          </label>
+        );
+      };
+
+      const SmallButton = ({ children, onClick, type = "button" }) => (
+        <button
+          type={type}
+          onClick={onClick}
+          className="rounded-xl border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 active:scale-[.99]"
+        >
+          {children}
+        </button>
+      );
+
+      function Toolbar({ data, setData, setShowPrint }) {
+        const [fileErr, setFileErr] = useState("");
+
+        const handleExport = () => {
+          const blob = new Blob([JSON.stringify(data, null, 2)], {
+            type: "application/json",
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          const name = data?.project?.name?.trim() || "pti-handoff";
+          a.download = `${name.replace(/\s+/g, "-").toLowerCase()}-handoff.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const handleImport = (file) => {
+          setFileErr("");
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const parsed = JSON.parse(reader.result);
+              setData(parsed);
+            } catch (e) {
+              setFileErr("Invalid JSON file.");
+            }
+          };
+          reader.readAsText(file);
+        };
+
+        const handleReset = () => {
+          if (!confirm("Reset the form to defaults?")) return;
+          setData(deepClone(defaultData));
+          localStorage.removeItem(STORAGE_KEY);
+        };
+
+        const handlePrint = () => {
+          setShowPrint(true);
+          setTimeout(() => window.print(), 50);
+          setTimeout(() => setShowPrint(false), 2000);
+        };
+
+        const handleCopyLink = async () => {
+          try {
+            await navigator.clipboard.writeText(location.href);
+            alert("Page URL copied. Data is stored locally on this browser.");
+          } catch (e) {
+            alert("Could not copy. You can manually copy the URL from the address bar.");
+          }
+        };
+
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <SmallButton onClick={handleExport}>Export JSON</SmallButton>
+            <label className="rounded-xl border border-gray-300 px-3 py-1 text-sm cursor-pointer hover:bg-gray-50">
+              Import JSON
+              <input
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={(e) => handleImport(e.target.files?.[0])}
+              />
+            </label>
+            <SmallButton onClick={handlePrint}>Print / Save PDF</SmallButton>
+            <SmallButton onClick={handleReset}>Reset</SmallButton>
+            <SmallButton onClick={handleCopyLink}>Copy Page URL</SmallButton>
+            {fileErr && <span className="text-sm text-red-600">{fileErr}</span>}
+          </div>
+        );
+      }
+
+      function BOMTable({ items = [], onChange }) {
+        const update = (idx, key, value) => {
+          const next = items.map((row, i) =>
+            i === idx ? { ...row, [key]: value } : row
+          );
+          onChange(next);
+        };
+
+        const addRow = () =>
+          onChange([...(items || []), { item: "", qty: "", notes: "" }]);
+
+        const removeRow = (idx) =>
+          onChange((items || []).filter((_, i) => i !== idx));
+
+        const rows = items.length ? items : [{ item: "", qty: "", notes: "" }];
+
+        return (
+          <div className="border rounded-2xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr className="text-left">
+                  <th className="p-3">Item</th>
+                  <th className="p-3 w-24">Qty</th>
+                  <th className="p-3">Notes</th>
+                  <th className="p-3 w-20 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="p-2">
+                      <TextInput
+                        value={row.item}
+                        onChange={(v) => update(i, "item", v)}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <TextInput
+                        value={row.qty}
+                        onChange={(v) => update(i, "qty", v)}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <TextInput
+                        value={row.notes}
+                        onChange={(v) => update(i, "notes", v)}
+                      />
+                    </td>
+                    <td className="p-2 text-right">
+                      <SmallButton onClick={() => removeRow(i)}>
+                        Remove
+                      </SmallButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="p-3 bg-gray-50 border-t flex justify-end">
+              <SmallButton onClick={addRow}>Add Item</SmallButton>
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const saved = useMemo(loadSaved, []);
+        const [data, setData] = useState(
+          saved || deepClone(defaultData)
+        );
+        const [showPrint, setShowPrint] = useState(false);
+
+        useAutoSave(data);
+
+        const title = data.project?.name
+          ? `PTI Project Handoff – ${data.project.name}`
+          : "PTI Project Handoff";
+
+        return (
+          <div className="min-h-screen bg-gray-100 print:bg-white">
+            <header className="no-print sticky top-0 z-40 backdrop-blur bg-white/70 border-b">
+              <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-xl font-semibold">
+                    PTI Internal Project Handoff
+                  </h1>
+                  <p className="text-sm text-gray-600">
+                    Autosaves locally • Export/Import JSON • Print to PDF
+                  </p>
+                </div>
+                <Toolbar data={data} setData={setData} setShowPrint={setShowPrint} />
+              </div>
+            </header>
+
+            <main className="max-w-5xl mx-auto px-4 py-6 print:py-0">
+              {/* 1. Project Overview */}
+              <Section title="1. Project Overview">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Project Name / Property</Label>
+                    <TextInput
+                      value={data.project.name}
+                      onChange={(v) =>
+                        setData({ ...data, project: { ...data.project, name: v } })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Project Address</Label>
+                    <TextInput
+                      value={data.project.address}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, address: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Client Contact Name & Title</Label>
+                    <TextInput
+                      value={data.project.clientNameTitle}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, clientNameTitle: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Client Phone / Email</Label>
+                    <TextInput
+                      value={data.project.clientPhoneEmail}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, clientPhoneEmail: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>PTI Sales Representative</Label>
+                    <TextInput
+                      value={data.project.salesRep}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, salesRep: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Project Manager Assigned</Label>
+                    <TextInput
+                      value={data.project.projectManager}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, projectManager: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Date of Handoff Meeting</Label>
+                    <TextInput
+                      type="date"
+                      value={data.project.handoffDate}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, handoffDate: v },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 mt-3">
+                  <div className="flex flex-wrap gap-4">
+                    <Label className="!mb-0">Project Type</Label>
+                    {["New Installation", "Retrofit", "Upgrade", "Expansion"].map(
+                      (opt) => (
+                        <Radio
+                          key={opt}
+                          name="projectType"
+                          value={opt}
+                          label={opt}
+                          checked={data.project.type === opt}
+                          onChange={(v) =>
+                            setData({
+                              ...data,
+                              project: { ...data.project, type: v },
+                            })
+                          }
+                        />
+                      )
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>Scope Summary</Label>
+                    <TextArea
+                      rows={3}
+                      placeholder="Briefly describe the work sold, including systems, quantities, and deliverables."
+                      value={data.project.scopeSummary}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: { ...data.project, scopeSummary: v },
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <Label>List System Components Required – Project BOM</Label>
+                    <BOMTable
+                      items={data.project.bom}
+                      onChange={(bom) =>
+                        setData({ ...data, project: { ...data.project, bom } })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Client-Facing Solution Summary</Label>
+                    <TextArea
+                      rows={3}
+                      placeholder="e.g., This system provides automated entry control using integrated hardware and software components."
+                      value={data.project.clientSolutionSummary}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          project: {
+                            ...data.project,
+                            clientSolutionSummary: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              {/* 2. Installation Details */}
+              <Section title="2. Installation Details">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label>Entry Lanes</Label>
+                    <TextInput
+                      value={data.install.lanes.entry}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            lanes: { ...data.install.lanes, entry: v },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Exit Lanes</Label>
+                    <TextInput
+                      value={data.install.lanes.exit}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            lanes: { ...data.install.lanes, exit: v },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Reversible Lanes</Label>
+                    <TextInput
+                      value={data.install.lanes.reversible}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            lanes: { ...data.install.lanes, reversible: v },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Mounting Method</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <Switch
+                      id="mount-surface"
+                      label="Surface Mount"
+                      checked={data.install.mounting.surface}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            mounting: {
+                              ...data.install.mounting,
+                              surface: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="mount-direct"
+                      label="Direct Burial"
+                      checked={data.install.mounting.directBurial}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            mounting: {
+                              ...data.install.mounting,
+                              directBurial: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="mount-wall"
+                      label="Wall / Ceiling Mount"
+                      checked={data.install.mounting.wall}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            mounting: {
+                              ...data.install.mounting,
+                              wall: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="mount-footer"
+                      label="New Footer"
+                      checked={data.install.mounting.footer}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            mounting: {
+                              ...data.install.mounting,
+                              footer: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <TextInput
+                        placeholder="Multiple / Other"
+                        value={data.install.mounting.other}
+                        onChange={(v) =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              mounting: {
+                                ...data.install.mounting,
+                                other: v,
+                              },
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label>Power Availability</Label>
+                    <div className="flex gap-4">
+                      <Radio
+                        name="power"
+                        value="yes"
+                        label="Yes"
+                        checked={data.install.power.available}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              power: {
+                                ...data.install.power,
+                                available: true,
+                              },
+                            },
+                          })
+                        }
+                      />
+                      <Radio
+                        name="power"
+                        value="no"
+                        label="No"
+                        checked={!data.install.power.available}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              power: {
+                                ...data.install.power,
+                                available: false,
+                              },
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label>Power Location</Label>
+                    <TextInput
+                      value={data.install.power.location}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            power: {
+                              ...data.install.power,
+                              location: v,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label>Network Availability</Label>
+                    <div className="flex gap-4">
+                      <Radio
+                        name="network"
+                        value="yes"
+                        label="Yes"
+                        checked={data.install.network.available}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              network: {
+                                ...data.install.network,
+                                available: true,
+                              },
+                            },
+                          })
+                        }
+                      />
+                      <Radio
+                        name="network"
+                        value="no"
+                        label="No"
+                        checked={!data.install.network.available}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              network: {
+                                ...data.install.network,
+                                available: false,
+                              },
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>Connection Type</Label>
+                    <div className="flex gap-4">
+                      <Radio
+                        name="conn"
+                        value="cellular"
+                        label="Cellular"
+                        checked={data.install.network.connection === "cellular"}
+                        onChange={(v) =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              network: {
+                                ...data.install.network,
+                                connection: v,
+                              },
+                            },
+                          })
+                        }
+                      />
+                      <Radio
+                        name="conn"
+                        value="wired"
+                        label="Wired"
+                        checked={data.install.network.connection === "wired"}
+                        onChange={(v) =>
+                          setData({
+                            ...data,
+                            install: {
+                              ...data.install,
+                              network: {
+                                ...data.install.network,
+                                connection: v,
+                              },
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>If wired, specify location</Label>
+                    <TextInput
+                      value={data.install.network.wiredLocation}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            network: {
+                              ...data.install.network,
+                              wiredLocation: v,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Site Work Required</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <Switch
+                      id="site-concrete"
+                      label="Concrete / Core Drilling"
+                      checked={data.install.siteWork.concrete}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            siteWork: {
+                              ...data.install.siteWork,
+                              concrete: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="site-asphalt"
+                      label="Asphalt Work"
+                      checked={data.install.siteWork.asphalt}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            siteWork: {
+                              ...data.install.siteWork,
+                              asphalt: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="site-saw"
+                      label="Saw Cutting"
+                      checked={data.install.siteWork.saw}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            siteWork: {
+                              ...data.install.siteWork,
+                              saw: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="site-trench"
+                      label="Trenching"
+                      checked={data.install.siteWork.trench}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            siteWork: {
+                              ...data.install.siteWork,
+                              trench: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="site-none"
+                      label="None"
+                      checked={data.install.siteWork.none}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            siteWork: {
+                              ...data.install.siteWork,
+                              none: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Equipment Staging / Delivery Location</Label>
+                    <TextInput
+                      value={data.install.stagingLocation}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            stagingLocation: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Access / Security Requirements</Label>
+                    <TextInput
+                      value={data.install.accessSecurity}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            accessSecurity: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <div>
+                    <Label>
+                      Special Site Conditions / Constraints / Work Hour Restrictions
+                    </Label>
+                    <TextArea
+                      rows={3}
+                      value={data.install.specialConditions}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: {
+                            ...data.install,
+                            specialConditions: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Onsite Point of Contact</Label>
+                    <TextInput
+                      value={data.install.onsitePOC}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          install: { ...data.install, onsitePOC: v },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              {/* 3. Integration & Software */}
+              <Section title="3. Integration & Software (If Applicable)">
+                <div className="grid gap-4">
+                  <div>
+                    <Label>Configuration or Programming Notes</Label>
+                    <TextArea
+                      rows={3}
+                      value={data.integration.configNotes}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          integration: {
+                            ...data.integration,
+                            configNotes: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>What integrations are needed?</Label>
+                    <TextArea
+                      rows={2}
+                      value={data.integration.integrationsNeeded}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          integration: {
+                            ...data.integration,
+                            integrationsNeeded: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              {/* 4. Scheduling & Timeline */}
+              <Section title="4. Scheduling & Timeline">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label>Target Start Date</Label>
+                    <TextInput
+                      type="date"
+                      value={data.schedule.targetStart}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          schedule: {
+                            ...data.schedule,
+                            targetStart: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Client-Required Completion Date</Label>
+                    <TextInput
+                      type="date"
+                      value={data.schedule.clientCompletion}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          schedule: {
+                            ...data.schedule,
+                            clientCompletion: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>Permit / Access Approvals Pending</Label>
+                    <div className="flex gap-4">
+                      <Radio
+                        name="permits"
+                        value="yes"
+                        label="Yes"
+                        checked={data.schedule.permitPending === true}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            schedule: {
+                              ...data.schedule,
+                              permitPending: true,
+                            },
+                          })
+                        }
+                      />
+                      <Radio
+                        name="permits"
+                        value="no"
+                        label="No"
+                        checked={data.schedule.permitPending === false}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            schedule: {
+                              ...data.schedule,
+                              permitPending: false,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Dependencies / Prerequisites</Label>
+                  <TextArea
+                    rows={3}
+                    placeholder="Example: electrical work, network setup, hardware delivery."
+                    value={data.schedule.dependencies}
+                    onChange={(v) =>
+                      setData({
+                        ...data,
+                        schedule: {
+                          ...data.schedule,
+                          dependencies: v,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              </Section>
+
+              {/* 5. Financial & Contractual */}
+              <Section title="5. Financial & Contractual">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label>Contract / Quote Value ($)</Label>
+                    <TextInput
+                      type="number"
+                      value={data.financial.value}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          financial: {
+                            ...data.financial,
+                            value: v,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>Purchase Order Received</Label>
+                    <div className="flex gap-4">
+                      <Radio
+                        name="po"
+                        value="yes"
+                        label="Yes"
+                        checked={data.financial.poReceived === true}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            financial: {
+                              ...data.financial,
+                              poReceived: true,
+                            },
+                          })
+                        }
+                      />
+                      <Radio
+                        name="po"
+                        value="no"
+                        label="No"
+                        checked={data.financial.poReceived === false}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            financial: {
+                              ...data.financial,
+                              poReceived: false,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>Deposit Received (Over $30k)</Label>
+                    <div className="flex gap-4">
+                      <Radio
+                        name="deposit"
+                        value="yes"
+                        label="Yes"
+                        checked={data.financial.depositReceived === true}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            financial: {
+                              ...data.financial,
+                              depositReceived: true,
+                            },
+                          })
+                        }
+                      />
+                      <Radio
+                        name="deposit"
+                        value="no"
+                        label="No"
+                        checked={data.financial.depositReceived === false}
+                        onChange={() =>
+                          setData({
+                            ...data,
+                            financial: {
+                              ...data.financial,
+                              depositReceived: false,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Billing Schedule</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <Switch
+                      id="bill-dep"
+                      label="Deposit"
+                      checked={data.financial.billing.deposit}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          financial: {
+                            ...data.financial,
+                            billing: {
+                              ...data.financial.billing,
+                              deposit: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="bill-prog"
+                      label="Progress Billing"
+                      checked={data.financial.billing.progress}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          financial: {
+                            ...data.financial,
+                            billing: {
+                              ...data.financial.billing,
+                              progress: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <Switch
+                      id="bill-final"
+                      label="Final Payment"
+                      checked={data.financial.billing.final}
+                      onChange={(val) =>
+                        setData({
+                          ...data,
+                          financial: {
+                            ...data.financial,
+                            billing: {
+                              ...data.financial.billing,
+                              final: val,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              {/* 6. Attachments & Supporting Materials */}
+              <Section title="6. Attachments & Supporting Materials">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { key: "signedProposal", label: "Signed Proposal / Contract" },
+                    { key: "sitePhotos", label: "Site Photos" },
+                    { key: "drawings", label: "Layout Drawings" },
+                    { key: "equipmentList", label: "Equipment List" },
+                    { key: "elecNetworkPlans", label: "Electrical / Network Plans" },
+                    { key: "clientEmails", label: "Client Email Thread / Notes" },
+                  ].map((f) => (
+                    <div
+                      key={f.key}
+                      className="flex items-center justify-between gap-4 border rounded-2xl px-4 py-3"
+                    >
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {f.label}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Mark Yes/No below
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Radio
+                          name={`attach-${f.key}`}
+                          value="yes"
+                          label="Yes"
+                          checked={data.attachments[f.key] === true}
+                          onChange={() =>
+                            setData({
+                              ...data,
+                              attachments: {
+                                ...data.attachments,
+                                [f.key]: true,
+                              },
+                            })
+                          }
+                        />
+                        <Radio
+                          name={`attach-${f.key}`}
+                          value="no"
+                          label="No"
+                          checked={data.attachments[f.key] === false}
+                          onChange={() =>
+                            setData({
+                              ...data,
+                              attachments: {
+                                ...data.attachments,
+                                [f.key]: false,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+
+              {/* 7. Sales Notes & Client Commitments */}
+              <Section title="7. Sales Notes & Client Commitments">
+                <TextArea
+                  rows={4}
+                  placeholder="Include any expectations, verbal promises, or special instructions discussed during the sale."
+                  value={data.salesNotes}
+                  onChange={(v) =>
+                    setData({
+                      ...data,
+                      salesNotes: v,
+                    })
+                  }
+                />
+              </Section>
+
+              {/* 8. Project Management Acknowledgment */}
+              <Section title="8. Project Management Acknowledgment">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label>Reviewed By (Project Manager)</Label>
+                    <TextInput
+                      value={data.pmAck.reviewedBy}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          pmAck: { ...data.pmAck, reviewedBy: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Date</Label>
+                    <TextInput
+                      type="date"
+                      value={data.pmAck.date}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          pmAck: { ...data.pmAck, date: v },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-1"></div>
+                </div>
+                <div>
+                  <Label>Initial Action Items / Comments</Label>
+                  <TextArea
+                    rows={3}
+                    value={data.pmAck.initialActions}
+                    onChange={(v) =>
+                      setData({
+                        ...data,
+                        pmAck: {
+                          ...data.pmAck,
+                          initialActions: v,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              </Section>
+
+              <div className="no-print flex justify-end mt-6">
+                <button
+                  onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                  className="rounded-2xl bg-indigo-600 text-white px-5 py-2 shadow hover:bg-indigo-700"
+                >
+                  Back to Top
+                </button>
+              </div>
+
+              <div className="print-only mt-4">
+                <div className="text-center text-xs text-gray-500">
+                  PTI Internal Project Handoff • Generated{" "}
+                  {new Date().toLocaleString()}
+                </div>
+              </div>
+            </main>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
